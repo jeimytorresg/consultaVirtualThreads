@@ -2,10 +2,46 @@ package ec.edu.utpl.carrera.compu.progava;
 
 import java.io.*;
 import java.net.*;
+import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
 
 public class UrlProcessor {
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+        List<String> urls = Files.readAllLines(Paths.get("urls.txt"));
+        Map<String, Integer> urlResults = Collections.synchronizedMap(new LinkedHashMap<>());
+        List<Thread> threads = new ArrayList<>();
+
+        for (String url : urls) {
+            Thread thread = Thread.ofVirtual().start(() -> {
+                try {
+                    int count = process(url);
+                    urlResults.put(url, count);
+                } catch (IOException e) {
+                    System.err.println("Error al procesar " + url + ": " + e.getMessage());
+                    urlResults.put(url, -1);
+                }
+            });
+            threads.add(thread);
+        }
+
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        // Escribir el resultado en report.csv
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get("report.csv"))) {
+            writer.write("URL,Internal Links");
+            writer.newLine();
+            for (Map.Entry<String, Integer> entry : urlResults.entrySet()) {
+                writer.write(entry.getKey() + "," + entry.getValue());
+                writer.newLine();
+            }
+        }
+
+        System.out.println("Reporte generado como 'report.csv'");
+    }
 
     public static int process(String urlString) throws IOException {
         try {
@@ -25,7 +61,7 @@ public class UrlProcessor {
             connection.setInstanceFollowRedirects(true);
 
             if (connection.getResponseCode() != 200) {
-                System.out.println(urlString + " | devolviendo -1");
+                System.out.println(urlString + " no devolvió 200 OK.");
                 return -1;
             }
 
@@ -56,7 +92,13 @@ public class UrlProcessor {
             String link = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
 
             if (link.startsWith("http")) {
-                result.add(link);
+                try {
+                    URI uri = new URI(link);
+                    if (uri.getHost() != null && uri.getHost().equalsIgnoreCase(host)) {
+                        result.add(link);
+                    }
+                } catch (URISyntaxException ignored) {
+                }
             } else if (link.startsWith("/")) {
                 result.add("https://" + host + link);
             }
