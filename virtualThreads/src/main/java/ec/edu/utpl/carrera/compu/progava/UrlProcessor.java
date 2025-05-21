@@ -1,66 +1,67 @@
 package ec.edu.utpl.carrera.compu.progava;
 
 import java.io.*;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.nio.file.*;
+import java.net.*;
 import java.util.*;
+import java.util.regex.*;
 
 public class UrlProcessor {
 
-    /**
-     * Este programa procesa un archivo de texto llamado "urls.txt" que contiene una lista de URLs.
-     * Para cada URL, cuenta cuántos enlaces internos (del mismo dominio) están presentes.
-     * Luego, genera un archivo CSV llamado "report.csv" con el URL y la cantidad de URLs internas encontradas.
-     */
-    public static void main(String[] args) throws IOException, InterruptedException {
-        // Leer las URLs desde el archivo
-        List<String> urls = Files.readAllLines(Paths.get("urls.txt"));
-        Map<String, Integer> urlCountMap = Collections.synchronizedMap(new HashMap<>());
-
-        // Crear lista de hilos virtuales
-        List<Thread> threads = new ArrayList<>();
-
-        // Iniciar hilos para procesar cada URL
-        for (String url : urls) {
-            Thread thread = Thread.ofVirtual().start(() -> {
-                int count = (int) urls.stream()
-                        .filter(link -> isInternalLink(url, link))
-                        .count();
-                urlCountMap.put(url, count);
-            });
-            threads.add(thread);
-        }
-
-        // Esperar a que todos los hilos terminen
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        // Escribir el reporte CSV
-        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get("report.csv"))) {
-            writer.write("URL,Internal URLs");
-            writer.newLine();
-            for (Map.Entry<String, Integer> entry : urlCountMap.entrySet()) {
-                writer.write(entry.getKey() + "," + entry.getValue());
-                writer.newLine();
+    public static int process(String urlString) throws IOException {
+        try {
+            // Handle Twitter to X.com transition
+            if (urlString.contains("twitter.com")) {
+                urlString = urlString.replace("twitter.com", "x.com");
             }
+            
+            URL url = new URI(urlString).toURL();
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            
+            // Add specific headers for Twitter/X.com
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.5");
+            connection.setInstanceFollowRedirects(true);
+
+            if (connection.getResponseCode() != 200) {
+                System.out.println(urlString + " | devolviendo -1");
+                return -1;
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            StringBuilder html = new StringBuilder();
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                html.append(line);
+            }
+            reader.close();
+
+            Set<String> foundUrls = extractUrls(html.toString(), url.getHost());
+
+            return foundUrls.size();
+
+        } catch (Exception e) {
+            throw new IOException("No se pudo procesar: " + urlString, e);
         }
     }
 
-    /**
-     * Verifica si un enlace es interno al comparar su dominio con el dominio base.
-     * @param baseUrl URL base que se está procesando.
-     * @param link URL a comparar.
-     * @return true si el link es interno, false de lo contrario.
-     */
-    private static boolean isInternalLink(String baseUrl, String link) {
-        try {
-            URI baseUri = new URI(baseUrl);
-            URI linkUri = new URI(link);
-            return baseUri.getHost() != null && baseUri.getHost().equals(linkUri.getHost());
-        } catch (URISyntaxException e) {
-            return false;
+    private static Set<String> extractUrls(String html, String host) {
+        Set<String> result = new HashSet<>();
+        Pattern pattern = Pattern.compile("href\\s*=\\s*\"([^\"]+)\"|src\\s*=\\s*\"([^\"]+)\"");
+        Matcher matcher = pattern.matcher(html);
+
+        while (matcher.find()) {
+            String link = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+
+            if (link.startsWith("http")) {
+                result.add(link);
+            } else if (link.startsWith("/")) {
+                result.add("https://" + host + link);
+            }
         }
+
+        return result;
     }
 }
