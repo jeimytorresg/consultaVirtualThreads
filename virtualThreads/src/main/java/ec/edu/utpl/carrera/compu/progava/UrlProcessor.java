@@ -26,7 +26,7 @@ public class UrlProcessor {
             connection.setInstanceFollowRedirects(true);
 
             if (connection.getResponseCode() != 200) {
-                System.out.println(urlString + " no devolvió 200 OK.");
+                System.out.println(urlString + " se devuelve -1.");
                 return -1;
             }
 
